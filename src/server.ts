@@ -18,6 +18,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust reverse proxy (e.g. Render, Vercel, Cloudflare) for accurate IP rate-limiting
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 

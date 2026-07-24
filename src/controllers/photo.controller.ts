@@ -3,6 +3,7 @@ import { AuthRequest } from '../middlewares/auth.middleware';
 import multer from 'multer';
 import sharp from 'sharp';
 import { Readable } from 'stream';
+import mongoose from 'mongoose';
 import Photo from '../models/Photo';
 import Family from '../models/Family';
 import crypto from 'crypto';
@@ -75,7 +76,8 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
     const monthFolderId = await getOrCreateFolder(drive, capturedDate.toLocaleString('default', { month: 'long' }), yearFolderId);
 
     const safeCaption = req.body.caption ? req.body.caption.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30) : '';
-    const cleanFileName = safeCaption ? `${dateStr}_${safeCaption}.jpg` : `${dateStr}.jpg`;
+    const uniqueSuffix = crypto.randomBytes(3).toString('hex');
+    const cleanFileName = safeCaption ? `${dateStr}_${safeCaption}_${uniqueSuffix}.jpg` : `${dateStr}_${uniqueSuffix}.jpg`;
 
     const originalStream = Readable.from(originalBuffer);
 
@@ -92,8 +94,11 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
     let tags: string[] = [];
     if (req.body.tags) {
       try {
-        tags = JSON.parse(req.body.tags);
-      } catch {
+        const parsed = JSON.parse(req.body.tags);
+        if (Array.isArray(parsed)) {
+          tags = Array.from(new Set(parsed.map((t: any) => String(t).trim().toLowerCase()).filter(Boolean)));
+        }
+      } catch (e) {
         res.status(400).json({ message: 'Invalid tags format' });
         return;
       }
@@ -169,10 +174,9 @@ export const getDeletedPhotos = async (req: AuthRequest, res: Response): Promise
 
     const photos = await Photo.find({ 
       familyId, 
-      isDeleted: true,
-      deletedAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Last 30 days
+      isDeleted: true
     })
-      .sort({ deletedAt: -1 })
+      .sort({ deletedAt: -1, updatedAt: -1 })
       .populate('uploaderId', 'name avatarUrl');
 
     res.status(200).json(photos);
@@ -243,9 +247,14 @@ export const permanentDeletePhoto = async (req: AuthRequest, res: Response): Pro
 
 export const streamThumbnail = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const photoId = req.params.id as string;
 
-    const photo = await Photo.findOne({ _id: id, familyId: req.currentFamilyId, isDeleted: false });
+    if (typeof photoId !== 'string' || !mongoose.Types.ObjectId.isValid(photoId)) {
+      res.status(400).json({ message: 'Invalid photo ID' });
+      return;
+    }
+
+    const photo = await Photo.findOne({ _id: photoId, familyId: req.currentFamilyId });
     if (!photo) {
       res.status(404).json({ message: 'Photo not found' });
       return;
@@ -282,9 +291,14 @@ export const streamThumbnail = async (req: AuthRequest, res: Response): Promise<
 
 export const streamOriginal = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const photoId = req.params.id as string;
 
-    const photo = await Photo.findOne({ _id: id, familyId: req.currentFamilyId, isDeleted: false });
+    if (typeof photoId !== 'string' || !mongoose.Types.ObjectId.isValid(photoId)) {
+      res.status(400).json({ message: 'Invalid photo ID' });
+      return;
+    }
+
+    const photo = await Photo.findOne({ _id: photoId, familyId: req.currentFamilyId, isDeleted: false });
     if (!photo) {
       res.status(404).json({ message: 'Photo not found' });
       return;
@@ -310,15 +324,23 @@ export const streamOriginal = async (req: AuthRequest, res: Response): Promise<v
 export const deletePhoto = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const user = req.user;
-    const { id } = req.params;
+    const photoId = req.params.id as string;
 
-    const photo = await Photo.findOne({ _id: id, familyId: req.currentFamilyId });
+    if (typeof photoId !== 'string' || !mongoose.Types.ObjectId.isValid(photoId)) {
+      res.status(400).json({ message: 'Invalid photo ID' });
+      return;
+    }
+
+    const photo = await Photo.findOne({ _id: photoId, familyId: req.currentFamilyId });
     if (!photo) {
       res.status(404).json({ message: 'Photo not found' });
       return;
     }
 
-    if (req.membership?.role !== 'parent' && photo.uploaderId.toString() !== user._id.toString()) {
+    const uploaderIdStr = photo.uploaderId ? photo.uploaderId.toString() : '';
+    const userIdStr = user?._id ? user._id.toString() : '';
+
+    if (req.membership?.role !== 'parent' && uploaderIdStr !== userIdStr) {
       res.status(403).json({ message: 'Not authorized to delete this photo' });
       return;
     }
@@ -331,5 +353,47 @@ export const deletePhoto = async (req: AuthRequest, res: Response): Promise<void
   } catch (error) {
     console.error('Failed to delete photo:', error);
     res.status(500).json({ message: 'Failed to delete photo' });
+  }
+};
+
+export const updatePhotoDetails = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const user = req.user;
+    const photoId = req.params.id as string;
+    const { caption, capturedDate, tags } = req.body;
+
+    if (typeof photoId !== 'string' || !mongoose.Types.ObjectId.isValid(photoId)) {
+      res.status(400).json({ message: 'Invalid photo ID' });
+      return;
+    }
+
+    const photo = await Photo.findOne({ _id: photoId, familyId: req.currentFamilyId, isDeleted: false });
+    if (!photo) {
+      res.status(404).json({ message: 'Photo not found' });
+      return;
+    }
+
+    const uploaderIdStr = photo.uploaderId ? photo.uploaderId.toString() : '';
+    const userIdStr = user?._id ? user._id.toString() : '';
+
+    if (req.membership?.role !== 'parent' && uploaderIdStr !== userIdStr) {
+      res.status(403).json({ message: 'Not authorized to edit this photo' });
+      return;
+    }
+
+    if (caption !== undefined) photo.caption = caption;
+    if (capturedDate) photo.capturedDate = new Date(capturedDate);
+    if (tags !== undefined) {
+      photo.tags = Array.isArray(tags) 
+        ? Array.from(new Set(tags.map((t: any) => String(t).trim().toLowerCase()).filter(Boolean)))
+        : [];
+    }
+
+    await photo.save();
+
+    res.status(200).json({ message: 'Photo updated successfully', photo });
+  } catch (error) {
+    console.error('Failed to update photo:', error);
+    res.status(500).json({ message: 'Failed to update photo' });
   }
 };

@@ -5,6 +5,7 @@ export interface IFamily extends Document {
   inviteCodeExpiry?: Date;
   babyName?: string;
   babyDob?: Date;
+  babyAvatarBase64?: string;
   driveFolderId?: string;
   driveRefreshToken?: string;
   settings: {
@@ -18,6 +19,7 @@ const FamilySchema: Schema = new Schema({
   inviteCodeExpiry: { type: Date },
   babyName: { type: String, default: 'Tara' },
   babyDob: { type: Date, default: new Date('2026-02-10') },
+  babyAvatarBase64: { type: String },
   driveFolderId: { type: String },
   driveRefreshToken: { type: String },
   settings: {

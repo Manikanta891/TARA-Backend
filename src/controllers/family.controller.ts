@@ -9,7 +9,8 @@ import { Readable } from 'stream';
 import sharp from 'sharp';
 import { setDriveCredentials, uploadFileStream, getFileStream, deleteFile } from '../services/drive.service';
 
-const FAMILY_FIELDS = 'babyName babyDob settings inviteCode driveFolderId createdAt';
+const FAMILY_FIELDS = 'babyName babyDob babyAvatarBase64 settings inviteCode driveFolderId createdAt';
+
 const USER_FIELDS = 'name email avatarUrl families';
 
 const mapMember = (m: any, familyId: string) => {
@@ -55,11 +56,15 @@ export const getFamilyMembers = async (req: AuthRequest, res: Response): Promise
     }).map(m => mapMember(m, familyId));
     
     const family = await Family.findById(familyId).select(FAMILY_FIELDS);
+    const familyObj = family ? family.toObject() : null;
+    if (familyObj && familyObj.babyAvatarBase64) {
+      (familyObj as any).babyAvatarUrl = `data:image/jpeg;base64,${familyObj.babyAvatarBase64}`;
+    }
 
     res.status(200).json({ 
       members: activeMembers, 
       pendingRequests, 
-      family, 
+      family: familyObj, 
       currentUserRole: req.membership?.role 
     });
   } catch (error) {
@@ -159,6 +164,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response): Promis
     res.status(200).json({
       babyName: family.babyName || 'Baby',
       babyDob: family.babyDob || new Date('2026-02-10'),
+      babyAvatarUrl: family.babyAvatarBase64 ? `data:image/jpeg;base64,${family.babyAvatarBase64}` : null,
       userRelationship: req.membership?.relationshipToBaby || 'Family Member',
       userNickname: req.membership?.nickname,
       userStatus: req.membership?.status,
@@ -196,6 +202,69 @@ export const updateBabyDetails = async (req: AuthRequest, res: Response): Promis
   } catch (error) {
     console.error('Error updating baby details:', error);
     res.status(500).json({ message: 'Failed to update baby details' });
+  }
+};
+
+export const uploadBabyAvatar = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (req.membership?.role !== 'parent') {
+      res.status(403).json({ message: 'Only parents can update the baby display picture' });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ message: 'No image provided' });
+      return;
+    }
+    if (req.file.size > 15 * 1024 * 1024) {
+      res.status(400).json({ message: 'Image must be under 15MB' });
+      return;
+    }
+
+    const family = await Family.findById(req.currentFamilyId);
+    if (!family) {
+      res.status(404).json({ message: 'Family not found' });
+      return;
+    }
+
+    const processedImageBuffer = await sharp(req.file.buffer)
+      .resize(300, 300, { fit: 'cover' })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+
+    const base64Image = processedImageBuffer.toString('base64');
+    family.babyAvatarBase64 = base64Image;
+    await family.save();
+
+    res.status(200).json({
+      message: 'Baby display picture updated successfully',
+      babyAvatarUrl: `data:image/jpeg;base64,${base64Image}`
+    });
+  } catch (error) {
+    console.error('Error uploading baby avatar:', error);
+    res.status(500).json({ message: 'Failed to upload baby display picture' });
+  }
+};
+
+export const deleteBabyAvatar = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (req.membership?.role !== 'parent') {
+      res.status(403).json({ message: 'Only parents can remove the baby display picture' });
+      return;
+    }
+
+    const family = await Family.findById(req.currentFamilyId);
+    if (!family) {
+      res.status(404).json({ message: 'Family not found' });
+      return;
+    }
+
+    family.babyAvatarBase64 = undefined;
+    await family.save();
+
+    res.status(200).json({ message: 'Baby display picture removed successfully' });
+  } catch (error) {
+    console.error('Error deleting baby avatar:', error);
+    res.status(500).json({ message: 'Failed to remove baby display picture' });
   }
 };
 
@@ -404,8 +473,8 @@ export const uploadAvatar = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
-    if (req.file.size > 5 * 1024 * 1024) {
-      res.status(400).json({ message: 'Avatar must be under 5MB' });
+    if (req.file.size > 15 * 1024 * 1024) {
+      res.status(400).json({ message: 'Avatar must be under 15MB' });
       return;
     }
 

@@ -23,7 +23,7 @@ const setTokenCookies = (res: Response, accessToken: string, refreshToken: strin
   res.cookie('accessToken', accessToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'strict',
+    sameSite: 'lax',
     maxAge: 15 * 60 * 1000, // 15 minutes
     path: '/',
   });
@@ -31,7 +31,7 @@ const setTokenCookies = (res: Response, accessToken: string, refreshToken: strin
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'strict',
+    sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     path: '/',
   });
@@ -101,8 +101,8 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
     }
   }
 
-  res.clearCookie('accessToken', { httpOnly: true, secure: isProduction, sameSite: 'strict', path: '/' });
-  res.clearCookie('refreshToken', { httpOnly: true, secure: isProduction, sameSite: 'strict', path: '/' });
+  res.clearCookie('accessToken', { httpOnly: true, secure: isProduction, sameSite: 'lax', path: '/' });
+  res.clearCookie('refreshToken', { httpOnly: true, secure: isProduction, sameSite: 'lax', path: '/' });
   res.status(200).json({ message: 'Logged out successfully' });
 };
 
@@ -116,16 +116,8 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
   try {
     const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET as string) as { id: string };
     const user = await User.findById(payload.id);
-    if (!user) {
-      res.status(401).json({ message: 'User not found' });
-      return;
-    }
-
-    const tokenHash = hashToken(token);
-    if (user.currentRefreshToken && user.currentRefreshToken !== tokenHash) {
-      user.currentRefreshToken = undefined;
-      await user.save();
-      res.status(403).json({ message: 'Invalid refresh token - session compromised' });
+    if (!user || user.status === 'disabled') {
+      res.status(401).json({ message: 'User not found or disabled' });
       return;
     }
 
@@ -138,7 +130,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
 
     res.status(200).json({ message: 'Token refreshed' });
   } catch {
-    res.status(403).json({ message: 'Invalid refresh token' });
+    res.status(401).json({ message: 'Invalid or expired refresh token' });
   }
 };
 
