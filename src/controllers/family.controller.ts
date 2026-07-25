@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/auth.middleware';
+import mongoose from 'mongoose';
 import Family from '../models/Family';
 import User from '../models/User';
 import Photo from '../models/Photo';
@@ -120,8 +121,8 @@ export const inviteMember = async (req: AuthRequest, res: Response): Promise<voi
 export const getDashboardStats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const familyId = req.currentFamilyId;
-    if (!familyId) {
-      res.status(400).json({ message: 'No family context provided' });
+    if (!familyId || !mongoose.Types.ObjectId.isValid(familyId)) {
+      res.status(400).json({ message: 'No valid family context provided' });
       return;
     }
 

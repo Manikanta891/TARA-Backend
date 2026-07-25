@@ -129,8 +129,8 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
 export const getPhotos = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const familyId = req.currentFamilyId;
-    if (!familyId) {
-      res.status(400).json({ message: 'No family context provided' });
+    if (!familyId || !mongoose.Types.ObjectId.isValid(familyId)) {
+      res.status(400).json({ message: 'No valid family context provided' });
       return;
     }
 
@@ -167,8 +167,8 @@ export const getPhotos = async (req: AuthRequest, res: Response): Promise<void> 
 export const getDeletedPhotos = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const familyId = req.currentFamilyId;
-    if (!familyId) {
-      res.status(400).json({ message: 'No family context provided' });
+    if (!familyId || !mongoose.Types.ObjectId.isValid(familyId)) {
+      res.status(400).json({ message: 'No valid family context provided' });
       return;
     }
 
