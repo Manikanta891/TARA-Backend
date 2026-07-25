@@ -165,6 +165,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response): Promis
       babyName: family.babyName || 'Baby',
       babyDob: family.babyDob || new Date('2026-02-10'),
       babyAvatarUrl: family.babyAvatarBase64 ? `data:image/jpeg;base64,${family.babyAvatarBase64}` : null,
+      userRole: req.membership?.role,
       userRelationship: req.membership?.relationshipToBaby || 'Family Member',
       userNickname: req.membership?.nickname,
       userStatus: req.membership?.status,

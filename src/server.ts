@@ -124,7 +124,7 @@ app.get('/api/health', (_req, res) => {
 
 // Global error handler — prevents stack trace leaks
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('Unhandled error:', err.message);
+  console.error('Unhandled error:', err.message, err.stack);
   res.status(500).json({ message: 'Internal server error' });
 });
 
