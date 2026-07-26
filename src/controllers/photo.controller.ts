@@ -12,14 +12,14 @@ import { setDriveCredentials, uploadFileStream, getFileStream, getOrCreateFolder
 const storage = multer.memoryStorage();
 export const upload = multer({ 
   storage,
-  limits: { fileSize: 35 * 1024 * 1024 }, // 35MB limit for high-res mobile photos
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit for high-res mobile photos & videos
   fileFilter: (req, file, cb) => {
-    const isImageMime = file.mimetype.startsWith('image/') || file.mimetype === 'application/octet-stream';
-    const isImageExt = /\.(heic|heif|jpg|jpeg|png|webp|gif)$/i.test(file.originalname);
+    const isImageMime = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/') || file.mimetype === 'application/octet-stream';
+    const isImageExt = /\.(heic|heif|jpg|jpeg|png|webp|gif|mp4|mov|webm|avi|mkv)$/i.test(file.originalname);
     if (isImageMime || isImageExt) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed'));
+      cb(new Error('Only image and video files are allowed'));
     }
   }
 });
@@ -41,7 +41,7 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
 
     // Enforce family upload settings
     if (!family.settings?.allowMemberUploads && req.membership?.role !== 'parent') {
-      res.status(403).json({ message: 'Only parents are allowed to upload photos' });
+      res.status(403).json({ message: 'Only parents are allowed to upload photos and videos' });
       return;
     }
 
@@ -50,29 +50,55 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Process image with sharp (correct orientation and generate thumbnail)
-    const imageBuffer = req.file.buffer;
-    let originalBuffer: Buffer;
-    let originalMetadata: sharp.Metadata;
-    let thumbnailBuffer: Buffer;
-
-    try {
-      originalBuffer = await sharp(imageBuffer, { failOn: 'none' })
-        .rotate()
-        .jpeg({ quality: 85 })
-        .toBuffer();
-      
-      originalMetadata = await sharp(originalBuffer).metadata();
-
-      thumbnailBuffer = await sharp(imageBuffer, { failOn: 'none' })
-        .rotate()
-        .resize(400, 400, { fit: 'cover' })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-    } catch (sharpError) {
-      console.error('Sharp image processing error:', sharpError);
-      res.status(400).json({ message: 'Unable to process this image format. Please select a standard JPEG, PNG, or WebP photo.' });
+    // Enforce 100MB size limit explicitly
+    if (req.file.size > 100 * 1024 * 1024) {
+      res.status(400).json({ message: 'Cannot upload file larger than 100MB' });
       return;
+    }
+
+    const fileBuffer = req.file.buffer;
+    const isVideo = req.file.mimetype.startsWith('video/') || /\.(mp4|mov|webm|avi|mkv)$/i.test(req.file.originalname);
+
+    let originalBuffer: Buffer;
+    let fileType: string = req.file.mimetype || (isVideo ? 'video/mp4' : 'image/jpeg');
+    let thumbnailBase64: string = '';
+    let imageWidth: number | undefined;
+    let imageHeight: number | undefined;
+    const mediaType: 'image' | 'video' = isVideo ? 'video' : 'image';
+
+    if (isVideo) {
+      originalBuffer = fileBuffer;
+      if (req.body.thumbnailBase64) {
+        thumbnailBase64 = req.body.thumbnailBase64.replace(/^data:image\/\w+;base64,/, '');
+      } else {
+        // Default video thumbnail poster frame
+        const videoPosterSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" fill="none"><rect width="400" height="400" fill="#1E293B"/><circle cx="200" cy="200" r="48" fill="#F4A284" fill-opacity="0.9"/><polygon points="188,176 224,200 188,224" fill="#FFFFFF"/></svg>`;
+        thumbnailBase64 = Buffer.from(videoPosterSvg).toString('base64');
+      }
+    } else {
+      try {
+        originalBuffer = await sharp(fileBuffer, { failOn: 'none' })
+          .rotate()
+          .jpeg({ quality: 85 })
+          .toBuffer();
+        
+        const originalMetadata = await sharp(originalBuffer).metadata();
+        imageWidth = originalMetadata.width;
+        imageHeight = originalMetadata.height;
+
+        const thumbnailBuffer = await sharp(fileBuffer, { failOn: 'none' })
+          .rotate()
+          .resize(400, 400, { fit: 'cover' })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+
+        thumbnailBase64 = thumbnailBuffer.toString('base64');
+        fileType = 'image/jpeg';
+      } catch (sharpError) {
+        console.error('Sharp image processing error:', sharpError);
+        res.status(400).json({ message: 'Unable to process this photo format. Please select a standard JPEG, PNG, or WebP photo.' });
+        return;
+      }
     }
 
     const capturedDate = req.body.capturedDate ? new Date(req.body.capturedDate) : new Date();
@@ -88,7 +114,8 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
 
     const safeCaption = req.body.caption ? req.body.caption.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30) : '';
     const uniqueSuffix = crypto.randomBytes(3).toString('hex');
-    const cleanFileName = safeCaption ? `${dateStr}_${safeCaption}_${uniqueSuffix}.jpg` : `${dateStr}_${uniqueSuffix}.jpg`;
+    const extension = isVideo ? (req.file.originalname.split('.').pop() || 'mp4') : 'jpg';
+    const cleanFileName = safeCaption ? `${dateStr}_${safeCaption}_${uniqueSuffix}.${extension}` : `${dateStr}_${uniqueSuffix}.${extension}`;
 
     const originalStream = Readable.from(originalBuffer);
 
@@ -96,11 +123,9 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
       drive,
       originalStream,
       cleanFileName,
-      'image/jpeg',
+      fileType,
       monthFolderId
     );
-
-    const thumbnailBase64 = thumbnailBuffer.toString('base64');
 
     let tags: string[] = [];
     if (req.body.tags) {
@@ -121,19 +146,20 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
       driveFileId: originalUpload.id,
       thumbnailBase64: thumbnailBase64,
       originalFilename: cleanFileName,
-      fileType: 'image/jpeg',
+      fileType: fileType,
+      mediaType: mediaType,
       fileSize: originalUpload.size || originalBuffer.length,
-      width: originalMetadata.width,
-      height: originalMetadata.height,
+      width: imageWidth,
+      height: imageHeight,
       capturedDate: capturedDate,
       caption: req.body.caption || '',
       tags
     });
 
-    res.status(201).json({ message: 'Photo uploaded successfully', photo });
+    res.status(201).json({ message: isVideo ? 'Video uploaded successfully' : 'Photo uploaded successfully', photo });
   } catch (error) {
     console.error("Upload error:", error);
-    res.status(500).json({ message: 'Failed to upload photo' });
+    res.status(500).json({ message: 'Failed to upload file' });
   }
 };
 

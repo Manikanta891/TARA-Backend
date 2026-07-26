@@ -8,6 +8,8 @@ export interface IPhoto extends Document {
   thumbnailBase64?: string;
   originalFilename: string;
   fileType: string;
+  mediaType?: 'image' | 'video';
+  duration?: number;
   fileSize: number;
   width?: number;
   height?: number;
@@ -27,6 +29,8 @@ const PhotoSchema: Schema = new Schema({
   thumbnailBase64: { type: String },
   originalFilename: { type: String, required: true },
   fileType: { type: String, required: true },
+  mediaType: { type: String, enum: ['image', 'video'], default: 'image' },
+  duration: { type: Number },
   fileSize: { type: Number, required: true },
   width: { type: Number },
   height: { type: Number },
