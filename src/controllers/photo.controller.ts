@@ -12,12 +12,14 @@ import { setDriveCredentials, uploadFileStream, getFileStream, getOrCreateFolder
 const storage = multer.memoryStorage();
 export const upload = multer({ 
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit
+  limits: { fileSize: 35 * 1024 * 1024 }, // 35MB limit for high-res mobile photos
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    const isImageMime = file.mimetype.startsWith('image/') || file.mimetype === 'application/octet-stream';
+    const isImageExt = /\.(heic|heif|jpg|jpeg|png|webp|gif)$/i.test(file.originalname);
+    if (isImageMime || isImageExt) {
       cb(null, true);
     } else {
-      cb(new Error('Only images are allowed'));
+      cb(new Error('Only image files are allowed'));
     }
   }
 });
@@ -26,8 +28,8 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
   try {
     const user = req.user;
     const familyId = req.currentFamilyId;
-    if (!familyId) {
-      res.status(400).json({ message: 'No family context provided' });
+    if (!familyId || !mongoose.Types.ObjectId.isValid(familyId)) {
+      res.status(400).json({ message: 'No valid family context provided' });
       return;
     }
 
@@ -50,19 +52,28 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
 
     // Process image with sharp (correct orientation and generate thumbnail)
     const imageBuffer = req.file.buffer;
-    
-    const originalBuffer = await sharp(imageBuffer)
-      .rotate()
-      .jpeg({ quality: 85 })
-      .toBuffer();
-    
-    const originalMetadata = await sharp(originalBuffer).metadata();
+    let originalBuffer: Buffer;
+    let originalMetadata: sharp.Metadata;
+    let thumbnailBuffer: Buffer;
 
-    const thumbnailBuffer = await sharp(imageBuffer)
-      .rotate()
-      .resize(400, 400, { fit: 'cover' })
-      .jpeg({ quality: 80 })
-      .toBuffer();
+    try {
+      originalBuffer = await sharp(imageBuffer, { failOn: 'none' })
+        .rotate()
+        .jpeg({ quality: 85 })
+        .toBuffer();
+      
+      originalMetadata = await sharp(originalBuffer).metadata();
+
+      thumbnailBuffer = await sharp(imageBuffer, { failOn: 'none' })
+        .rotate()
+        .resize(400, 400, { fit: 'cover' })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+    } catch (sharpError) {
+      console.error('Sharp image processing error:', sharpError);
+      res.status(400).json({ message: 'Unable to process this image format. Please select a standard JPEG, PNG, or WebP photo.' });
+      return;
+    }
 
     const capturedDate = req.body.capturedDate ? new Date(req.body.capturedDate) : new Date();
     const day = String(capturedDate.getDate()).padStart(2, '0');

@@ -31,7 +31,17 @@ if (process.env.NODE_ENV === 'production' && !clientUrl) {
   process.exit(1);
 }
 app.use(cors({
-  origin: clientUrl || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (clientUrl && origin === clientUrl) return callback(null, true);
+    if (process.env.NODE_ENV !== 'production') {
+      // Allow localhost and any local Wi-Fi network IP (192.168.x.x, 10.x.x.x, 172.x.x.x)
+      if (/^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+    }
+    callback(null, true);
+  },
   credentials: true
 }));
 
