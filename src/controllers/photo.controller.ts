@@ -9,6 +9,10 @@ import Family from '../models/Family';
 import crypto from 'crypto';
 import { setDriveCredentials, uploadFileStream, getFileStream, getOrCreateFolder } from '../services/drive.service';
 
+// Disable Sharp C++ memory caching and limit worker concurrency to prevent RAM spikes on Render free tier (512MB RAM limit)
+sharp.cache(false);
+sharp.concurrency(1);
+
 const storage = multer.memoryStorage();
 export const upload = multer({ 
   storage,
@@ -77,19 +81,23 @@ export const uploadPhoto = async (req: AuthRequest, res: Response): Promise<void
       }
     } else {
       try {
-        originalBuffer = await sharp(fileBuffer, { failOn: 'none' })
-          .rotate()
-          .jpeg({ quality: 85 })
+        const imagePipeline = sharp(fileBuffer, { failOn: 'none' }).rotate();
+        
+        // Single-pass processing: Cap stored image size to 2560px max dimension to save RAM
+        originalBuffer = await imagePipeline
+          .clone()
+          .resize(2560, 2560, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 82, progressive: true })
           .toBuffer();
         
         const originalMetadata = await sharp(originalBuffer).metadata();
         imageWidth = originalMetadata.width;
         imageHeight = originalMetadata.height;
 
-        const thumbnailBuffer = await sharp(fileBuffer, { failOn: 'none' })
-          .rotate()
+        const thumbnailBuffer = await imagePipeline
+          .clone()
           .resize(400, 400, { fit: 'cover' })
-          .jpeg({ quality: 80 })
+          .jpeg({ quality: 75 })
           .toBuffer();
 
         thumbnailBase64 = thumbnailBuffer.toString('base64');
@@ -172,22 +180,97 @@ export const getPhotos = async (req: AuthRequest, res: Response): Promise<void> 
     }
 
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 30));
     const skip = (page - 1) * limit;
 
-    const [photos, total] = await Promise.all([
-      Photo.find({ familyId, isDeleted: false })
-        .sort({ capturedDate: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('uploaderId', 'name avatarUrl'),
-      Photo.countDocuments({ familyId, isDeleted: false }),
+    const familyObjectId = new mongoose.Types.ObjectId(familyId);
+    const queryFilter: any = { familyId: req.currentFamilyId, isDeleted: false };
+
+    // Support year and month filtering
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+    const month = req.query.month ? parseInt(req.query.month as string) : undefined;
+
+    if (year && !isNaN(year)) {
+      let startDate: Date;
+      let endDate: Date;
+      if (month && !isNaN(month) && month >= 1 && month <= 12) {
+        startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+        endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+      } else {
+        startDate = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
+        endDate = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
+      }
+      queryFilter.capturedDate = { $gte: startDate, $lte: endDate };
+    }
+
+    const photosPromise = Photo.find(queryFilter)
+      .sort({ capturedDate: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('uploaderId', 'name avatarUrl');
+
+    const totalPromise = Photo.countDocuments(queryFilter);
+
+    // Safely aggregate timeline ensuring capturedDate exists and is a valid Date
+    const timelinePromise = Photo.aggregate([
+      { 
+        $match: { 
+          familyId: familyObjectId, 
+          isDeleted: false,
+          capturedDate: { $exists: true, $ne: null } 
+        } 
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$capturedDate' },
+            month: { $month: '$capturedDate' }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.year': -1, '_id.month': -1 } }
+    ]).catch(err => {
+      console.error('Timeline aggregation error:', err);
+      return [];
+    });
+
+    const [photos, total, timelineRaw] = await Promise.all([
+      photosPromise,
+      totalPromise,
+      timelinePromise
     ]);
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const timelineMap = new Map<number, { year: number; totalCount: number; months: { month: number; label: string; count: number }[] }>();
+
+    if (Array.isArray(timelineRaw)) {
+      timelineRaw.forEach(t => {
+        if (!t?._id?.year || !t?._id?.month) return;
+        const y = t._id.year;
+        const m = t._id.month;
+        const monthName = monthNames[m - 1] || 'Unknown';
+
+        if (!timelineMap.has(y)) {
+          timelineMap.set(y, { year: y, totalCount: 0, months: [] });
+        }
+        const yearObj = timelineMap.get(y)!;
+        yearObj.totalCount += t.count;
+        yearObj.months.push({
+          month: m,
+          label: monthName,
+          count: t.count
+        });
+      });
+    }
+
+    const timeline = Array.from(timelineMap.values()).sort((a, b) => b.year - a.year);
 
     res.status(200).json({
       photos,
       currentUserRole: req.membership?.role,
       currentUserId: req.user._id,
+      timeline,
       pagination: {
         page,
         limit,

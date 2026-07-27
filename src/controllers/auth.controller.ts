@@ -12,8 +12,8 @@ const hashToken = (token: string): string => {
 };
 
 const generateTokens = (userId: string) => {
-  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET as string, { expiresIn: '15m' });
-  const refreshToken = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET as string, { expiresIn: '7d' });
+  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET as string, { expiresIn: '30d' });
+  const refreshToken = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET as string, { expiresIn: '90d' });
   return { accessToken, refreshToken };
 };
 
@@ -24,7 +24,7 @@ const setTokenCookies = (res: Response, accessToken: string, refreshToken: strin
     httpOnly: true,
     secure: isProduction,
     sameSite: 'lax',
-    maxAge: 15 * 60 * 1000, // 15 minutes
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     path: '/',
   });
 
@@ -32,7 +32,7 @@ const setTokenCookies = (res: Response, accessToken: string, refreshToken: strin
     httpOnly: true,
     secure: isProduction,
     sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days
     path: '/',
   });
 };
