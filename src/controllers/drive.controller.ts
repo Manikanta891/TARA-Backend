@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import mongoose from 'mongoose';
 import { AuthRequest } from '../middlewares/auth.middleware';
 import { google } from 'googleapis';
 import jwt from 'jsonwebtoken';
@@ -84,6 +85,7 @@ export const handleCallback = async (req: AuthRequest, res: Response): Promise<v
       
       family.driveRefreshToken = tokens.refresh_token;
       family.driveFolderId = folderId;
+      family.driveConnectedByUserId = new mongoose.Types.ObjectId(uid);
       await family.save();
       
       console.log(`Successfully connected Google Drive for family ${familyId}. Folder created: ${folderId}`);

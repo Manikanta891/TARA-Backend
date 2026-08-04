@@ -8,6 +8,7 @@ export interface IFamily extends Document {
   babyAvatarBase64?: string;
   driveFolderId?: string;
   driveRefreshToken?: string;
+  driveConnectedByUserId?: mongoose.Types.ObjectId;
   settings: {
     allowMemberUploads: boolean;
     requireParentApprovalForMilestones: boolean;
@@ -22,6 +23,7 @@ const FamilySchema: Schema = new Schema({
   babyAvatarBase64: { type: String },
   driveFolderId: { type: String },
   driveRefreshToken: { type: String },
+  driveConnectedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
   settings: {
     allowMemberUploads: { type: Boolean, default: true },
     requireParentApprovalForMilestones: { type: Boolean, default: true }

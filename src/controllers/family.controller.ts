@@ -10,7 +10,7 @@ import { Readable } from 'stream';
 import sharp from 'sharp';
 import { setDriveCredentials, uploadFileStream, getFileStream, deleteFile } from '../services/drive.service';
 
-const FAMILY_FIELDS = 'babyName babyDob babyAvatarBase64 settings inviteCode driveFolderId createdAt';
+const FAMILY_FIELDS = 'babyName babyDob babyAvatarBase64 settings inviteCode driveFolderId driveConnectedByUserId createdAt';
 
 const USER_FIELDS = 'name email avatarUrl families';
 
