@@ -436,6 +436,103 @@ export const promoteToParent = async (req: AuthRequest, res: Response): Promise<
   }
 };
 
+export const demoteMember = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (req.membership?.role !== 'parent') {
+      res.status(403).json({ message: 'Only parents can demote members' });
+      return;
+    }
+
+    const { userId } = req.params;
+    if (req.user._id.toString() === userId) {
+      res.status(400).json({ message: 'You cannot demote yourself directly. Promote another member or leave the family.' });
+      return;
+    }
+
+    const member = await User.findById(userId);
+    if (!member) {
+      res.status(404).json({ message: 'Member not found' });
+      return;
+    }
+
+    const mem = member.families.find((f: any) => f.familyId.toString() === req.currentFamilyId && f.status === 'active');
+    if (!mem) {
+      res.status(404).json({ message: 'Active membership not found' });
+      return;
+    }
+
+    if (mem.role !== 'parent') {
+      res.status(400).json({ message: 'Member is not a parent' });
+      return;
+    }
+
+    const allMembers = await User.find({ 'families.familyId': req.currentFamilyId });
+    const parentCount = allMembers.filter(m => {
+      const fMem = m.families.find((f: any) => f.familyId.toString() === req.currentFamilyId);
+      return fMem?.role === 'parent' && fMem?.status === 'active';
+    }).length;
+
+    if (parentCount <= 1) {
+      res.status(400).json({ message: 'Cannot demote the last parent. At least one parent must remain.' });
+      return;
+    }
+
+    mem.role = 'member';
+    await member.save();
+
+    res.status(200).json({ message: 'Parent role revoked successfully' });
+  } catch (error) {
+    console.error('Error demoting member:', error);
+    res.status(500).json({ message: 'Failed to demote member' });
+  }
+};
+
+export const leaveFamily = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const user = req.user;
+    const familyId = req.currentFamilyId;
+
+    if (!familyId) {
+      res.status(400).json({ message: 'No family context provided' });
+      return;
+    }
+
+    const membership = user.families.find((f: any) => f.familyId.toString() === familyId);
+    if (!membership) {
+      res.status(404).json({ message: 'You are not a member of this family' });
+      return;
+    }
+
+    if (membership.role === 'parent' && membership.status === 'active') {
+      const allMembers = await User.find({ 'families.familyId': familyId });
+      const parentCount = allMembers.filter(m => {
+        const mem = m.families.find((f: any) => f.familyId.toString() === familyId);
+        return mem?.role === 'parent' && mem?.status === 'active';
+      }).length;
+
+      if (parentCount <= 1) {
+        res.status(400).json({ message: 'Cannot leave as the only parent. Please promote another member to parent first, or delete the family album.' });
+        return;
+      }
+    }
+
+    user.families = user.families.filter((f: any) => f.familyId.toString() !== familyId);
+    await user.save();
+
+    const remainingFamilies = user.families.filter((f: any) => f.status === 'active');
+    const nextFamilyId = remainingFamilies.length > 0 ? remainingFamilies[0].familyId : null;
+
+    res.status(200).json({ 
+      message: 'Left family album successfully', 
+      nextFamilyId,
+      hasOtherFamilies: remainingFamilies.length > 0
+    });
+  } catch (error) {
+    console.error('Error leaving family:', error);
+    res.status(500).json({ message: 'Failed to leave family' });
+  }
+};
+
 export const removeMember = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (req.membership?.role !== 'parent') {

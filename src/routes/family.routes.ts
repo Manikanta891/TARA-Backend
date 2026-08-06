@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getFamilyMembers, inviteMember, getDashboardStats, createFamily, joinFamily, getFamilyByCode, approveMember, promoteToParent, updateProfile, uploadAvatar, getAvatar, removeMember, updateBabyDetails, deleteFamily, uploadBabyAvatar, deleteBabyAvatar } from '../controllers/family.controller';
+import { getFamilyMembers, inviteMember, getDashboardStats, createFamily, joinFamily, getFamilyByCode, approveMember, promoteToParent, demoteMember, leaveFamily, updateProfile, uploadAvatar, getAvatar, removeMember, updateBabyDetails, deleteFamily, uploadBabyAvatar, deleteBabyAvatar } from '../controllers/family.controller';
 import { upload } from '../controllers/photo.controller';
 import { protect, parentOnly } from '../middlewares/auth.middleware';
 import { validate, createFamilySchema, joinFamilySchema, updateProfileSchema } from '../middlewares/validation';
@@ -12,6 +12,7 @@ router.get('/dashboard', protect, getDashboardStats);
 router.get('/info/:code', protect, getFamilyByCode);
 router.post('/create', protect, validate(createFamilySchema), createFamily);
 router.post('/join', protect, validate(joinFamilySchema), joinFamily);
+router.post('/leave', protect, leaveFamily);
 
 router.put('/baby', protect, parentOnly, updateBabyDetails);
 router.post('/baby/avatar', protect, parentOnly, upload.single('avatar'), uploadBabyAvatar);
@@ -20,6 +21,7 @@ router.put('/profile', protect, updateProfile);
 
 router.post('/members/:userId/approve', protect, parentOnly, approveMember);
 router.post('/members/:userId/promote', protect, promoteToParent);
+router.post('/members/:userId/demote', protect, parentOnly, demoteMember);
 router.delete('/members/:userId', protect, removeMember);
 
 router.put('/members/me', protect, validate(updateProfileSchema), updateProfile);
