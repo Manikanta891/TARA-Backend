@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getFamilyMembers, inviteMember, getDashboardStats, createFamily, joinFamily, approveMember, promoteToParent, updateProfile, uploadAvatar, getAvatar, removeMember, updateBabyDetails, deleteFamily, uploadBabyAvatar, deleteBabyAvatar } from '../controllers/family.controller';
+import { getFamilyMembers, inviteMember, getDashboardStats, createFamily, joinFamily, getFamilyByCode, approveMember, promoteToParent, updateProfile, uploadAvatar, getAvatar, removeMember, updateBabyDetails, deleteFamily, uploadBabyAvatar, deleteBabyAvatar } from '../controllers/family.controller';
 import { upload } from '../controllers/photo.controller';
 import { protect, parentOnly } from '../middlewares/auth.middleware';
 import { validate, createFamilySchema, joinFamilySchema, updateProfileSchema } from '../middlewares/validation';
@@ -9,6 +9,7 @@ const router = Router();
 router.get('/members', protect, getFamilyMembers);
 router.post('/invite', protect, inviteMember);
 router.get('/dashboard', protect, getDashboardStats);
+router.get('/info/:code', protect, getFamilyByCode);
 router.post('/create', protect, validate(createFamilySchema), createFamily);
 router.post('/join', protect, validate(joinFamilySchema), joinFamily);
 

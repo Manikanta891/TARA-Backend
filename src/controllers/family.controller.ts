@@ -301,6 +301,37 @@ export const createFamily = async (req: AuthRequest, res: Response): Promise<voi
   }
 };
 
+export const getFamilyByCode = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { code } = req.params;
+    if (!code || typeof code !== 'string') {
+      res.status(400).json({ message: 'Invite code is required' });
+      return;
+    }
+
+    const family = await Family.findOne({ inviteCode: code.trim().toUpperCase() }).select('babyName inviteCode createdAt');
+    if (!family) {
+      res.status(404).json({ message: 'Invalid invite code' });
+      return;
+    }
+
+    const user = req.user;
+    const existing = user?.families.find((f: any) => f.familyId.toString() === family._id.toString());
+
+    res.status(200).json({
+      familyId: family._id,
+      babyName: family.babyName,
+      inviteCode: family.inviteCode,
+      alreadyMember: Boolean(existing),
+      membershipStatus: existing?.status || null,
+      membershipRole: existing?.role || null,
+    });
+  } catch (error) {
+    console.error('Error fetching family by code:', error);
+    res.status(500).json({ message: 'Failed to fetch family details' });
+  }
+};
+
 export const joinFamily = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const user = req.user;
@@ -315,7 +346,14 @@ export const joinFamily = async (req: AuthRequest, res: Response): Promise<void>
 
     const existing = user.families.find((f: any) => f.familyId.toString() === family._id.toString());
     if (existing) {
-      res.status(400).json({ message: 'You are already a member of this family' });
+      res.status(200).json({
+        message: existing.status === 'active' 
+          ? 'You are already an active member of this family album' 
+          : 'Your request to join this family album is pending approval',
+        familyId: family._id,
+        alreadyMember: true,
+        status: existing.status
+      });
       return;
     }
 
@@ -329,7 +367,7 @@ export const joinFamily = async (req: AuthRequest, res: Response): Promise<void>
     
     await user.save();
 
-    res.status(200).json({ message: 'Joined family successfully. Waiting for parent approval.', familyId: family._id });
+    res.status(200).json({ message: 'Joined family successfully. Waiting for parent approval.', familyId: family._id, alreadyMember: false });
   } catch (error) {
     console.error('Error joining family:', error);
     res.status(500).json({ message: 'Failed to join family' });
