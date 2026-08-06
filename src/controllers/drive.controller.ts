@@ -98,3 +98,42 @@ export const handleCallback = async (req: AuthRequest, res: Response): Promise<v
     res.status(500).json({ message: 'Failed to authenticate with Google Drive' });
   }
 };
+
+export const getDriveStatus = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const familyId = req.currentFamilyId;
+    if (!familyId) {
+      res.status(400).json({ message: 'No family context provided' });
+      return;
+    }
+
+    const family = await Family.findById(familyId);
+    if (!family || !family.driveFolderId || !family.driveRefreshToken) {
+      res.status(200).json({ connected: false, valid: false });
+      return;
+    }
+
+    try {
+      const drive = setDriveCredentials(family.driveRefreshToken);
+      await drive.files.get({ fileId: family.driveFolderId, fields: 'id, name' });
+      res.status(200).json({
+        connected: true,
+        valid: true,
+        driveFolderId: family.driveFolderId,
+        driveConnectedByUserId: family.driveConnectedByUserId
+      });
+    } catch (driveErr) {
+      console.error('Google Drive token validation failed:', driveErr);
+      res.status(200).json({
+        connected: true,
+        valid: false,
+        driveFolderId: family.driveFolderId,
+        driveConnectedByUserId: family.driveConnectedByUserId,
+        message: 'Google Drive authorization expired or revoked'
+      });
+    }
+  } catch (error) {
+    console.error('Error checking drive status:', error);
+    res.status(500).json({ message: 'Failed to check Drive status' });
+  }
+};
